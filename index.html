@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鼠须管配置</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #141311;
+    --paper: #ece7df;
+    --rail: #1c1916;
+    --hint: #c9c2b8;
+    --quiet: #9c958b;
+    --control: #221f1c;
+    --line: #3a342c;
+    --cream: #f4efe8;
+    --accent: #f0c98a;
+    --ok: #b7d7b0;
+    --err: #f0a8a0;
+    --stage: #d7dbe3;
+    --stage-dark: #1c1f26;
+    --placeholder: #4a453e;
+    --hair: rgba(255, 255, 255, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--paper);
+    font: 15px/1.45 "PingFang SC", "Hiragino Sans GB", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { touch-action: manipulation; }
+  button { transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1); }
+  button:active { transform: scale(0.96); }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .desk {
+    min-height: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-rows: auto auto;
+    align-items: start;
+  }
+  .well { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; min-width: 0; }
+  .stage {
+    flex: 1 0 320px;
+    min-width: 0;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 48px 32px 12px;
+    background: var(--stage);
+  }
+  .stage.dark {
+    background: var(--stage-dark);
+  }
+  .facts { margin: 0; padding: 14px 32px 8px; color: var(--hint); font-size: 13px; text-wrap: pretty; }
+  .try {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0 32px 6px;
+    color: var(--hint);
+    font-size: 13px;
+  }
+  .try input {
+    font: inherit;
+    font-size: 16px;
+    color: var(--ink);
+    background: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+  .try input::placeholder { color: var(--placeholder); opacity: 1; }
+  .try-note { margin: 0; padding: 0 32px 18px; color: var(--hint); font-size: 13px; text-wrap: pretty; }
+  .palette {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 32px 28px;
+    border-top: 1px solid var(--hair);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-content: flex-start;
+  }
+  .rail {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px 22px;
+    background: var(--rail);
+    border-left: 1px solid var(--hair);
+  }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.012em; text-wrap: balance; }
+  h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.012em; }
+  .group { display: flex; flex-direction: column; gap: 8px; }
+  .hint { margin: 0; color: var(--hint); font-size: 13px; line-height: 1.45; text-wrap: pretty; }
+  .tabs { display: flex; background: var(--control); border-radius: 10px; padding: 3px; }
+  .tabs button {
+    appearance: none;
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--hint);
+    font: inherit;
+    min-height: 44px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { background: var(--line); color: var(--cream); }
+  .nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  label.pick, .nums label, label.check {
+    display: flex;
+    gap: 8px;
+    color: var(--quiet);
+    font-size: 13px;
+  }
+  .nums label, label.pick { flex-direction: column; align-items: stretch; }
+  label.check { flex-direction: row; align-items: center; min-height: 44px; color: var(--hint); }
+  select, button.deploy, button.quiet, input[type="number"] {
+    font: inherit;
+    color: var(--cream);
+    background: var(--control);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-height: 44px;
+  }
+  input[type="number"] { width: 100%; font-variant-numeric: tabular-nums; }
+  button.deploy { cursor: pointer; background: var(--line); }
+  button.quiet { cursor: pointer; background: transparent; }
+  button.deploy:focus-visible, button.quiet:focus-visible, .try input:focus-visible, select:focus-visible, input[type="number"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button.deploy:disabled, button.quiet:disabled { opacity: 0.55; cursor: default; }
+  .scheme { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .scheme strong { display: block; font-size: 15px; font-weight: 600; }
+  .scheme .state { display: block; margin-top: 2px; color: var(--hint); font-size: 13px; }
+  .scheme button.deploy { flex: 0 0 auto; white-space: nowrap; }
+  .status { min-height: 1.4em; font-size: 13px; color: var(--hint); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .record { color: var(--quiet); font-size: 13px; }
+  .record summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .record summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .log {
+    margin: 0;
+    max-height: 9em;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--quiet);
+  }
+  .chips button {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: var(--control);
+    color: var(--hint);
+    font: inherit;
+    font-size: 13px;
+    border-radius: 999px;
+    min-height: 44px;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+  .chips button[aria-pressed="true"] { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+  .fit { transform-origin: center center; }
+  .panel {
+    line-height: 1.35;
+    width: max-content;
+    display: flex;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  }
+  .panel.col { flex-direction: column; align-items: flex-start; }
+  .panel.swap { animation: rise 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .cand { display: flex; align-items: baseline; gap: 0.35em; white-space: nowrap; }
+  .label { font-variant-numeric: tabular-nums; }
+  .comment { font-size: 0.78em; }
+  @keyframes rise { from { opacity: 0; } to { opacity: 1; } }
+  @media (max-width: 760px) {
+    .desk { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+    .well { grid-column: 1; grid-row: 1; min-height: 320px; }
+    .stage { padding: 36px 16px 8px; }
+    .facts { padding: 12px 16px 8px; }
+    .try { padding: 0 16px 6px; }
+    .try-note { padding: 0 16px 16px; }
+    .palette { grid-column: 1; grid-row: 3; padding: 16px; }
+    .rail {
+      grid-column: 1;
+      grid-row: 2;
+      position: static;
+      max-height: none;
+      overflow: visible;
+      border-left: 0;
+      border-top: 1px solid var(--hair);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+    .panel.swap { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="desk">
+  <section class="well">
+    <div id="stage" class="stage"></div>
+    <p class="facts">上面是预览，还不是正在用的候选窗。</p>
+    <label class="try">用鼠须管打字
+      <input id="try-input" type="text" autocomplete="off" spellcheck="false" placeholder="例如 zhongguo">
+    </label>
+    <p class="try-note">打的是系统里现在的输入法，不会改预览。</p>
+  </section>
+  <aside class="rail">
+    <h1>鼠须管配置</h1>
+    <section class="group">
+      <h2>外观</h2>
+      <p class="hint">先看预览。保存之后，候选窗才换成预览里的样子。</p>
+      <div class="tabs" role="tablist">
+        <button type="button" id="tab-row" role="tab" aria-selected="false">横排</button>
+        <button type="button" id="tab-col" role="tab" aria-selected="true">竖排</button>
+      </div>
+      <div class="nums">
+        <label>候选数
+          <input id="page-size" type="number" min="1" max="9" step="1" value="8">
+        </label>
+        <label>字号
+          <input id="font-point" type="number" min="10" max="28" step="1" value="16">
+        </label>
+        <label>序号字号
+          <input id="label-point" type="number" min="8" max="24" step="1" value="12">
+        </label>
+      </div>
+      <p class="hint">字号是候选词，序号字号是前面的 1. 2. 3。</p>
+      <label class="check"><input id="inline-preedit" type="checkbox" checked>拼音留在光标那一行</label>
+      <p class="hint">不勾选时，拼音显示在候选窗顶上。</p>
+      <label class="pick">字体
+        <select id="font">
+          <option value="LXGW ZhenKai Slab GB" data-css='"LXGW ZhenKai Slab GB", "霞鹜臻楷 Slab GB"'>霞鹜臻楷 Slab GB</option>
+          <option value="LXGW WenKai" data-css='"LXGW WenKai", "霞鹜文楷"'>霞鹜文楷</option>
+          <option value="PingFang SC" data-css='"PingFang SC"'>苹方</option>
+          <option value="Kaiti SC" data-css='"Kaiti SC", "STKaiti"'>楷体</option>
+          <option value="Songti SC" data-css='"Songti SC", "STSong"'>宋体</option>
+          <option value="Xingkai SC" data-css='"Xingkai SC"'>行楷</option>
+        </select>
+      </label>
+      <p class="hint" id="dirty" hidden>有未保存的改动。</p>
+      <button type="button" class="deploy" id="deploy" disabled>保存外观</button>
+      <button type="button" class="quiet" id="restore">撤回上次写入</button>
+    </section>
+    <section class="group">
+      <h2>方案</h2>
+      <p class="hint">点了马上写入，鼠须管会重新加载。安装雾凇会下载方案文件。安装万象约 399MB。停用不会删除已经下载的文件。</p>
+      <div class="scheme">
+        <div>
+          <strong>雾凇拼音</strong>
+          <span class="state" id="ice-state">正在读取…</span>
+        </div>
+        <button type="button" class="deploy" id="use-ice" disabled>启用</button>
+      </div>
+      <div class="scheme">
+        <div>
+          <strong>万象语法模型</strong>
+          <span class="state" id="model-state">正在读取…</span>
+          <span class="state">不是必须。没有它也能打字。</span>
+        </div>
+        <button type="button" class="deploy" id="use-model" disabled>启用</button>
+      </div>
+    </section>
+    <select id="theme" hidden></select>
+    <span class="status" id="status" aria-live="polite"></span>
+    <details class="record">
+      <summary>上次写入了什么</summary>
+      <pre id="log" class="log"></pre>
+    </details>
+  </aside>
+  <section class="palette" aria-labelledby="palette-title">
+    <h2 id="palette-title">配色</h2>
+    <p class="hint">点一下，预览马上换。要写入，按保存外观。</p>
+    <div id="chips" class="chips"></div>
+  </section>
+</div>
+
+<script type="module">
+import { previewInput, resolvePanel } from "/panel.mjs";
+let missingConfig = false;
+const configResponse = await fetch("/config.yaml");
+const yamlText = configResponse.ok ? await configResponse.text() : "";
+const words = ["中国", "中过", "钟国", "忠国", "种过", "重国", "中果", "终过", "钟过"];
+const menuResponse = await fetch("/default.yaml");
+const menuText = menuResponse.ok ? await menuResponse.text() : "";
+if (!configResponse.ok || !menuResponse.ok) missingConfig = true;
+const schemes = [
+  { id: "macos_light", name: "macOS 浅色", now: "浅色方案", corner_radius: 12.5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 12, labelStyle: "dot", back_color: "0xB0FFFFFF", candidate_text_color: "0x000000", hilited_candidate_back_color: "0xF99563", hilited_candidate_text_color: "0xFFFFFF", label_color: "0x80000000", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "macos_dark", name: "macOS 深色", now: "当前", corner_radius: 12.5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 12, labelStyle: "dot", back_color: "0x26000000", candidate_text_color: "0xE6FFFFFF", hilited_candidate_back_color: "0xFDDFD0", hilited_candidate_text_color: "0x000000", label_color: "0x80FFFFFF", hilited_candidate_label_color: "0x000000" },
+  { id: "my", name: "扁平明／Flat Light", corner_radius: 15, border_width: 12, border_height: 8, font_point: 16, label_font_point: 12, back_color: "0x00FFFFFF", candidate_text_color: "0xB3000000", comment_text_color: "0x80333333", label_color: "0xBB333333", hilited_candidate_back_color: "0xDDFFFFFF", hilited_candidate_text_color: "0x000000", hilited_comment_text_color: "0xBF333333", hilited_candidate_label_color: "0x000000" },
+  { id: "my_dark", name: "扁平暗／Flat Dark", corner_radius: 15, border_width: 12, border_height: 8, font_point: 16, label_font_point: 12, back_color: "0x00000000", candidate_text_color: "0xE6FFFFFF", comment_text_color: "0x80BBBBBB", label_color: "0xBBBBBBBB", hilited_candidate_back_color: "0xDDD75A00", hilited_candidate_text_color: "0xFFFFFF", hilited_comment_text_color: "0xBFBBBBBB", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "wechat_light", name: "微信键盘浅色", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 12, back_color: "0xFFFFFF", comment_text_color: "0x999999", hilited_candidate_back_color: "0x75B100", hilited_candidate_text_color: "0xFFFFFF" },
+  { id: "wechat_dark", name: "微信键盘深色", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 12, back_color: "0x2e2925", label_color: "0x999999", candidate_text_color: "0xe9e9ea", comment_text_color: "0x999999", hilited_candidate_back_color: "0x75B100", hilited_candidate_text_color: "0xFFFFFF" },
+  { id: "mac_light", name: "Mac浅色", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 13, back_color: "0xFFFFFF", text_color: "0x424242", label_color: "0x999999", candidate_text_color: "0x3c3c3c", comment_text_color: "0x999999", hilited_back_color: "0xD75A00", hilited_candidate_text_color: "0xFFFFFF", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "mac_dark", name: "Mac深色", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 13, back_color: "0x252a2e", border_color: "0x050505", label_color: "0x999999", candidate_text_color: "0xe9e9ea", comment_text_color: "0x999999", hilited_back_color: "0xD75A00", hilited_candidate_text_color: "0xFFFFFF", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "mac_green", name: "Mac绿", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 13, back_color: "0xFFFFFF", label_color: "0x999999", candidate_text_color: "0x3c3c3c", comment_text_color: "0x999999", hilited_candidate_back_color: "0x32A14C", hilited_candidate_text_color: "0xFFFFFF", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "mac_orange", name: "Mac橙", corner_radius: 5, border_width: 8, border_height: 6, font_point: 16, label_font_point: 13, back_color: "0xFFFFFF", label_color: "0x999999", candidate_text_color: "0x3c3c3c", comment_text_color: "0x999999", hilited_candidate_back_color: "0x0E6BD8", hilited_candidate_text_color: "0xFFFFFF", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "mac_blue", name: "Mac浅蓝", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 13, line_spacing: 8, back_color: "0xFFFFFF", label_color: "0x999999", candidate_text_color: "0x3c3c3c", comment_text_color: "0x999999", hilited_back_color: "0xF8AA4D", hilited_candidate_text_color: "0xFFFFFF", hilited_candidate_label_color: "0xFFFFFF" },
+  { id: "psionics", name: "幽能", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0x444444", candidate_text_color: "0xeeeeee", comment_text_color: "0x808080", hilited_candidate_back_color: "0xd4bc00", hilited_candidate_text_color: "0xfafafa", hilited_candidate_label_color: "0xfafafa", hilited_comment_text_color: "0x444444" },
+  { id: "win10", name: "win10", corner_radius: 0, border_width: 12, border_height: 10, font_point: 17, label_font_point: 16, candidate_spacing: 18, back_color: "0xffffff", candidate_text_color: "0x000000", label_color: "0x888888", comment_text_color: "0x888888", hilited_candidate_back_color: "0xcc8f29", hilited_candidate_text_color: "0xffffff", hilited_comment_text_color: "0xffffff", hilited_label_color: "0xffffff" },
+  { id: "solarized_rock", name: "日光石", corner_radius: 6, border_width: 10, border_height: 8, font_point: 16, label_font_point: 15, back_color: "0x362b00", candidate_text_color: "0x969483", comment_text_color: "0xc098a12a", hilited_candidate_back_color: "0x8236d3", hilited_candidate_text_color: "0xffffff", hilited_candidate_label_color: "0xfafafa", hilited_comment_text_color: "0x362b00" },
+  { id: "solarized_dark", name: "夜光石", corner_radius: 6, border_width: 10, border_height: 8, font_point: 16, label_font_point: 15, back_color: "0xf0352A0A", border_color: "0xf02A1F00", label_color: "0xCC8947", candidate_text_color: "0x989F52", comment_text_color: "0x289989", hilited_candidate_back_color: "0xD7E8ED", hilited_candidate_text_color: "0x3942CB", hilited_candidate_label_color: "0x2566C6", hilited_comment_text_color: "0x8144C2" },
+  { id: "apathy", name: "冷漠", corner_radius: 5, border_width: 10, border_height: 8, font_point: 17, label_font_point: 12, back_color: "0xFFFFFF", comment_text_color: "0x999999", hilited_candidate_back_color: "0xFFF0E4", hilited_candidate_text_color: "0xEE6E00" },
+  { id: "google", name: "谷歌", corner_radius: 6, border_width: 10, border_height: 8, font_point: 16, label_font_point: 15, back_color: "0xFFFFFF", border_color: "0xE2E2E2", candidate_text_color: "0x000000", comment_text_color: "0x6D6D6D", hilited_candidate_back_color: "0xCE7539", hilited_candidate_text_color: "0xffffff", hilited_candidate_label_color: "0xfafafa", hilited_comment_text_color: "0xEBC6B0" },
+  { id: "milan", name: "米兰", corner_radius: 5, border_width: 12, border_height: 8, font_point: 16, label_font_point: 14, line_spacing: 8, back_color: "0xFFFFFF", comment_text_color: "0x999999", hilited_candidate_back_color: "0xF5803B", hilited_candidate_text_color: "0xFFFFFF" },
+  { id: "ink", name: "墨池", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0xeeffffff", candidate_text_color: "0x000000", comment_text_color: "0x5a5a5a", hilited_candidate_back_color: "0xcc000000", hilited_candidate_text_color: "0xffffff", hilited_comment_text_color: "0x808080" },
+  { id: "purity", name: "纯洁", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0x444444", candidate_text_color: "0xeeeeee", comment_text_color: "0x808080", hilited_candidate_back_color: "0xfafafa", hilited_candidate_text_color: "0x000000" },
+  { id: "starcraft", name: "星际争霸", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0xee000000", border_color: "0x1010a0", candidate_text_color: "0x30bb55", comment_text_color: "0x1010d0", hilited_candidate_back_color: "0x000000", hilited_candidate_text_color: "0x70ffaf", hilited_comment_text_color: "0x1010f0" },
+  { id: "nord_light", name: "北方浅色", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0xF4EFEC", candidate_text_color: "0xC1A181", comment_text_color: "0xD0C088", hilited_candidate_back_color: "0xE9DED8", hilited_candidate_text_color: "0xAC815E" },
+  { id: "nord_dark", name: "北方深色", corner_radius: 5, border_width: 10, border_height: 8, font_point: 16, label_font_point: 14, back_color: "0x473A33", candidate_text_color: "0xF5D887", comment_text_color: "0xE6B687", hilited_candidate_back_color: "0x5D4C43", hilited_candidate_text_color: "0xC0E077" }
+];
+
+let horizontal = false;
+
+function cssColor(hex, fallback) {
+  if (!hex) return fallback || null;
+  let s = String(hex).replace(/^0x/i, "");
+  let a = 255;
+  if (s.length > 6) {
+    a = parseInt(s.slice(0, s.length - 6), 16);
+    s = s.slice(-6);
+  }
+  s = s.padStart(6, "0");
+  const b = parseInt(s.slice(0, 2), 16);
+  const g = parseInt(s.slice(2, 4), 16);
+  const r = parseInt(s.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+}
+
+function modelFor(s) {
+  const input = previewInput(yamlText, s.id);
+  const font = document.getElementById("font").value;
+  const layout = horizontal ? "linear" : "stacked";
+  const style = {
+    ...input.style,
+    font_face: font,
+    candidate_list_layout: layout,
+    font_point: readNumber("font-point", 16),
+    label_font_point: readNumber("label-point", 12),
+    inline_preedit: document.getElementById("inline-preedit").checked,
+  };
+  const scheme = { ...input.scheme };
+  if ("font_face" in scheme) scheme.font_face = font;
+  if ("label_font_face" in scheme) scheme.label_font_face = font;
+  if ("candidate_list_layout" in scheme) scheme.candidate_list_layout = layout;
+  for (const key of ["font_point", "label_font_point", "inline_preedit"]) {
+    if (key in scheme) scheme[key] = style[key];
+  }
+  return resolvePanel(style, scheme);
+}
+
+function makePanel(s) {
+  const drawn = modelFor(s);
+  const hiBg = cssColor(s.hilited_candidate_back_color || s.hilited_back_color, "transparent");
+  const text = cssColor(s.candidate_text_color, "#111");
+  const label = cssColor(s.label_color, text);
+  const comment = cssColor(s.comment_text_color, label);
+  const hiText = cssColor(s.hilited_candidate_text_color, text);
+  const hiLabel = cssColor(s.hilited_candidate_label_color || s.hilited_label_color, hiText);
+  const hiComment = cssColor(s.hilited_comment_text_color, comment);
+  const el = document.createElement("div");
+  el.className = "panel col";
+  const list = document.createElement("div");
+  list.style.display = "flex";
+  list.style.flexDirection = drawn.layout === "linear" ? "row" : "column";
+  list.style.alignItems = "baseline";
+  list.style.gap = drawn.lineSpacing + "px";
+  if (drawn.preedit !== null) {
+    const preedit = document.createElement("div");
+    preedit.className = "preedit";
+    preedit.textContent = "zhong'guo";
+    preedit.style.opacity = "0.72";
+    preedit.style.fontSize = "0.85em";
+    el.append(preedit);
+  }
+  const fontSelect = document.getElementById("font");
+  el.style.fontFamily = drawn.fontFace === fontSelect.value
+    ? fontSelect.selectedOptions[0].dataset.css
+    : `"${drawn.fontFace}"`;
+  el.style.background = cssColor(s.back_color, "#fff");
+  el.style.color = text;
+  el.style.borderRadius = drawn.cornerRadius + "px";
+  el.style.padding = `${drawn.edgeInset.height}px ${drawn.edgeInset.width}px`;
+  el.style.gap = drawn.lineSpacing + "px";
+  el.style.fontSize = drawn.fontPoint + "px";
+  el.style.boxShadow = "none";
+  if (s.border_color) el.style.boxShadow = `0 0 0 1px ${cssColor(s.border_color)}`;
+  const count = readNumber("page-size", 8);
+  words.slice(0, count).forEach((word, i) => {
+    const on = i === 0;
+    const cand = document.createElement("div");
+    cand.className = "cand";
+    if (on) {
+      cand.style.background = hiBg;
+      cand.style.color = hiText;
+      cand.style.borderRadius = drawn.hilitedCornerRadius + "px";
+      cand.style.padding = "1px 5px";
+      if (drawn.highlightShadow > 0) {
+        cand.style.boxShadow = `0 1px ${drawn.highlightShadow * 2}px rgba(0,0,0,.28)`;
+      }
+    }
+    const lab = document.createElement("span");
+    lab.className = "label";
+    lab.textContent = s.labelStyle === "dot" ? (i + 1) + "." : String(i + 1);
+    lab.style.fontSize = drawn.labelFontPoint + "px";
+    lab.style.color = on ? hiLabel : label;
+    const w = document.createElement("span");
+    w.textContent = word;
+    cand.append(lab, w);
+    if (i === 0 || i === 3) {
+      const c = document.createElement("span");
+      c.className = "comment";
+      c.textContent = i === 0 ? "名词" : "动词";
+      c.style.color = on ? hiComment : comment;
+      cand.append(c);
+    }
+    list.append(cand);
+  });
+  el.append(list);
+  return el;
+}
+
+function fit(stage) {
+  const box = stage.querySelector(".fit");
+  if (!box) return;
+  const panel = box.firstElementChild;
+  const avail = stage.clientWidth - 32;
+  const scale = Math.min(1, avail / Math.max(panel.offsetWidth, 1));
+  box.style.transform = scale < 1 ? `scale(${scale})` : "none";
+}
+
+function render() {
+  const s = schemes.find((item) => item.id === selectedId) || schemes[0];
+  const stage = document.getElementById("stage");
+  const swap = stage.dataset.scheme && stage.dataset.scheme !== s.id;
+  stage.dataset.scheme = s.id;
+  const ink = cssColor(s.candidate_text_color, "#111");
+  const parts = ink.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  const lum = parts ? Number(parts[1]) + Number(parts[2]) + Number(parts[3]) : 0;
+  stage.className = "stage" + (lum > 380 ? " dark" : "");
+  const box = document.createElement("div");
+  box.className = "fit";
+  const panel = makePanel(s);
+  if (swap) panel.classList.add("swap");
+  box.append(panel);
+  stage.replaceChildren(box);
+  fit(stage);
+  paintChips();
+  showDirty();
+}
+
+function readNumber(id, fallback) {
+  const el = document.getElementById(id);
+  const n = Number(el.value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Number(el.max), Math.max(Number(el.min), n));
+}
+
+function snapNumber(event) {
+  const el = event.currentTarget;
+  const n = Number(el.value);
+  if (!Number.isFinite(n)) el.value = el.dataset.fallback;
+  else el.value = String(Math.min(Number(el.max), Math.max(Number(el.min), n)));
+  el.dataset.fallback = el.value;
+  render();
+}
+
+let chipsReady = false;
+
+function paintChips() {
+  const chips = document.getElementById("chips");
+  if (!chipsReady) {
+    chips.replaceChildren();
+    for (const item of schemes) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.id = item.id;
+      button.textContent = item.name;
+      button.onclick = () => selectTheme(item.id, false);
+      chips.append(button);
+    }
+    chipsReady = true;
+  }
+  for (const button of chips.children) {
+    button.setAttribute("aria-pressed", String(button.dataset.id === selectedId));
+  }
+
+}
+
+document.getElementById("tab-row").onclick = () => setLayout(true);
+document.getElementById("tab-col").onclick = () => setLayout(false);
+document.getElementById("font").onchange = render;
+document.getElementById("page-size").oninput = render;
+document.getElementById("font-point").oninput = render;
+document.getElementById("label-point").oninput = render;
+document.getElementById("page-size").onblur = snapNumber;
+document.getElementById("font-point").onblur = snapNumber;
+document.getElementById("label-point").onblur = snapNumber;
+document.getElementById("inline-preedit").onchange = render;
+
+function setLayout(row) {
+  horizontal = row;
+  document.getElementById("tab-row").setAttribute("aria-selected", String(row));
+  document.getElementById("tab-col").setAttribute("aria-selected", String(!row));
+  render();
+}
+
+let savedDraft = "";
+
+function currentDraft() {
+  return JSON.stringify({
+    id: selectedId,
+    row: horizontal,
+    page: document.getElementById("page-size").value,
+    fontPoint: document.getElementById("font-point").value,
+    labelPoint: document.getElementById("label-point").value,
+    inline: document.getElementById("inline-preedit").checked,
+    font: document.getElementById("font").value,
+  });
+}
+
+function showDirty() {
+  const changed = savedDraft !== "" && currentDraft() !== savedDraft;
+  document.getElementById("dirty").hidden = !changed;
+  const button = document.getElementById("deploy");
+  if (button.dataset.busy === "1") return;
+  button.disabled = !changed;
+}
+
+function markSaved() {
+  savedDraft = currentDraft();
+  showDirty();
+}
+
+let selectedId = "macos_dark";
+const saved = previewInput(yamlText, "macos_light").style;
+if (schemes.some((item) => item.id === saved.color_scheme)) selectedId = saved.color_scheme;
+const theme = document.getElementById("theme");
+for (const s of schemes) {
+  const option = document.createElement("option");
+  option.value = s.id;
+  option.textContent = s.name;
+  theme.append(option);
+}
+theme.value = selectedId;
+theme.onchange = () => selectTheme(theme.value, true);
+const font = document.getElementById("font");
+if ([...font.options].some((option) => option.value === saved.font_face)) font.value = saved.font_face;
+
+function selectTheme(id, scroll) {
+  selectedId = id;
+  theme.value = id;
+  render();
+  if (scroll) document.querySelector("article.selected")?.scrollIntoView({ block: "nearest" });
+}
+
+document.getElementById("deploy").onclick = async () => {
+  const button = document.getElementById("deploy");
+  const status = document.getElementById("status");
+  button.disabled = true;
+  button.dataset.busy = "1";
+  status.className = "status";
+  status.textContent = "正在保存外观…";
+  try {
+    const response = await fetch("/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scheme: selectedId,
+        layout: horizontal ? "linear" : "stacked",
+        font: document.getElementById("font").value,
+        pageSize: readNumber("page-size", 8),
+        style: {
+          inline_preedit: document.getElementById("inline-preedit").checked,
+          font_point: readNumber("font-point", 16),
+          label_font_point: readNumber("label-point", 12),
+        },
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "保存失败");
+    status.className = "status ok";
+    status.textContent = wroteNothing(data.log) ? "已经是这样，没有写入。" : "已保存，候选窗会换成现在的预览。";
+    markSaved();
+    await loadLog();
+  } catch (error) {
+    status.className = "status err";
+    const refused = error instanceof TypeError;
+    status.textContent = refused
+      ? "预览服务没连上。刷新 http://127.0.0.1:8766 后再保存。"
+      : (error.message || String(error));
+  } finally {
+    button.dataset.busy = "";
+    showDirty();
+  }
+};
+
+async function postPreset(button, body) {
+  const status = document.getElementById("status");
+  const name = button.closest(".scheme").querySelector("strong").textContent;
+  const verb = button.textContent;
+  button.disabled = true;
+  status.className = "status";
+  status.textContent = `正在${verb}${name}…`;
+  try {
+    const response = await fetch("/presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "写入失败");
+    status.className = "status ok";
+    status.textContent = wroteNothing(data.log) ? "已经是这样，没有写入。" : `已${verb}${name}。`;
+    await loadStatus();
+    await loadLog();
+  } catch (error) {
+    status.className = "status err";
+    status.textContent = error instanceof TypeError
+      ? "预览服务没连上。"
+      : (error.message || String(error));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function wroteNothing(log) {
+  return (log || []).some((line) => String(line).includes("已经是这样，没有写入"));
+}
+
+function showScheme(id, stateId, mode, label, state, on) {
+  const button = document.getElementById(id);
+  const name = button.closest(".scheme").querySelector("strong").textContent;
+  button.textContent = label;
+  button.dataset.mode = mode;
+  button.dataset.on = on ? "1" : "0";
+  button.setAttribute("aria-label", label + name);
+  button.disabled = false;
+  document.getElementById(stateId).textContent = state;
+}
+
+async function loadStatus() {
+  const response = await fetch("/status");
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error || "读不到启用状态");
+  if (data.example) {
+    const status = document.getElementById("status");
+    status.className = "status err";
+    status.textContent = "没有找到 ~/Library/Rime。这是仓库里的示例，不会写入。";
+    return;
+  }
+  if (data.iceFiles) showScheme("use-ice", "ice-state", "toggle", data.ice ? "停用" : "启用", data.ice ? "已启用" : "未启用", data.ice);
+  else showScheme("use-ice", "ice-state", "install", "安装", "还没安装", false);
+  if (data.modelFile) showScheme("use-model", "model-state", "toggle", data.wanxiang ? "停用" : "启用", data.wanxiang ? "已启用" : "未启用", data.wanxiang);
+  else showScheme("use-model", "model-state", "install", "安装", "还没安装", false);
+  if (missingConfig) {
+    const status = document.getElementById("status");
+    status.className = "status err";
+    status.textContent = "还没有外观或方案列表。先打开一次鼠须管，让它生成用户目录。";
+  }
+
+loadStatus().catch((error) => {
+  document.getElementById("status").textContent = error.message || String(error);
+});
+
+function renderLog(entries) {
+  const log = document.getElementById("log");
+  const text = (entries || []).map((entry) => entry.lines.join("\n")).join("\n\n")
+    .replaceAll("没有改文件", "已经是这样，没有写入")
+    .replaceAll("保存并重新部署", "保存外观")
+    .replaceAll("还原上一次", "撤回上次写入")
+    .replaceAll("已经是这份备份", "已经是上次写入的内容");
+  log.textContent = text;
+  log.closest("details").querySelector("summary").textContent = text.trim()
+    ? "上次写入了什么"
+    : "还没有写入记录";
+  log.scrollTop = log.scrollHeight;
+  document.getElementById("restore").disabled = !(entries || []).some((entry) => entry.id);
+}
+
+async function loadLog() {
+  const response = await fetch("/log");
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error || "读不到日志");
+  renderLog(data.entries);
+}
+
+loadLog().catch((error) => {
+  document.getElementById("log").textContent = error.message || String(error);
+});
+
+document.getElementById("restore").onclick = async (event) => {
+  const button = event.currentTarget;
+  const status = document.getElementById("status");
+  button.disabled = true;
+  status.className = "status";
+  status.textContent = "正在撤回上次写入…";
+  try {
+    const response = await fetch("/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "撤回失败");
+    status.className = "status ok";
+    status.textContent = (data.log || []).includes("已经是上次写入的内容") ? "已经是上次写入的内容。" : "已撤回上次写入。";
+    await loadStatus();
+    await loadLog();
+  } catch (error) {
+    status.className = "status err";
+    status.textContent = error.message || String(error);
+    button.disabled = false;
+  }
+};
+
+let installPoll = 0;
+
+function lockControls(locked) {
+  for (const id of ["use-ice", "use-model", "deploy", "restore"]) {
+    const el = document.getElementById(id);
+    if (el.dataset.busy === "1") continue;
+    el.disabled = locked;
+  }
+}
+
+async function pollInstall() {
+  const response = await fetch("/install-progress");
+  const data = await response.json();
+  if (!data.running || !data.phase) return;
+  const pct = data.total ? ` ${Math.floor(data.received * 100 / data.total)}%` : "";
+  document.getElementById("status").textContent = data.phase + pct;
+}
+
+async function startInstall(button, body) {
+  const status = document.getElementById("status");
+  const name = button.closest(".scheme").querySelector("strong").textContent;
+  button.dataset.busy = "1";
+  button.textContent = "取消安装";
+  button.setAttribute("aria-label", "取消安装" + name);
+  button.closest(".scheme").querySelector(".state").textContent = "正在安装";
+  lockControls(true);
+  status.className = "status";
+  status.textContent = "正在准备…";
+  installPoll = setInterval(() => { pollInstall().catch(() => {}); }, 400);
+  try {
+    const response = await fetch("/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "安装失败");
+    status.className = "status ok";
+    status.textContent = `已安装${name}。`;
+    await loadLog();
+  } catch (error) {
+    status.className = error.message === "已取消" ? "status" : "status err";
+    status.textContent = error instanceof TypeError ? "预览服务没连上。" : (error.message || String(error));
+  } finally {
+    clearInterval(installPoll);
+    button.dataset.busy = "";
+    lockControls(false);
+    button.disabled = false;
+    await loadStatus().catch(() => {});
+  }
+}
+
+document.getElementById("use-ice").onclick = (event) => {
+  const button = event.currentTarget;
+  if (button.dataset.busy === "1") {
+    fetch("/install-cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    document.getElementById("status").textContent = "正在取消…";
+    return;
+  }
+  if (button.dataset.mode === "install") startInstall(button, { ice: true });
+  else postPreset(button, { ice: button.dataset.on !== "1" });
+};
+document.getElementById("use-model").onclick = (event) => {
+  const button = event.currentTarget;
+  if (button.dataset.busy === "1") {
+    fetch("/install-cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    document.getElementById("status").textContent = "正在取消…";
+    return;
+  }
+  if (button.dataset.mode === "install") startInstall(button, { model: true });
+  else postPreset(button, { wanxiang: button.dataset.on !== "1" });
+};
+
+if (location.protocol === "file:") location.replace("http://127.0.0.1:8766/");
+
+const pageMatch = menuText.match(/menu\/page_size"?:\s*(\d+)/);
+if (pageMatch) document.getElementById("page-size").value = pageMatch[1];
+if (saved.font_point) document.getElementById("font-point").value = saved.font_point;
+if (saved.label_font_point) document.getElementById("label-point").value = saved.label_font_point;
+document.getElementById("inline-preedit").checked = saved.inline_preedit !== false;
+for (const id of ["page-size", "font-point", "label-point"]) {
+  const field = document.getElementById(id);
+  field.dataset.fallback = field.value;
+}
+setLayout(saved.candidate_list_layout === "linear");
+markSaved();
+addEventListener("resize", () => document.querySelectorAll(".stage").forEach(fit));
+</script>
+</body>
+</html>

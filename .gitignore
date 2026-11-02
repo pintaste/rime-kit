@@ -1,0 +1,7 @@
+*.gram
+*.gram.bin
+.DS_Store
+__pycache__/
+.rime-user/
+backups/
+.impeccable/

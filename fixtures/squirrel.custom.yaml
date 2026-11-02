@@ -1,0 +1,14 @@
+patch:
+  style/color_scheme: macos_dark
+  style/color_scheme_dark: macos_dark
+  style/candidate_list_layout: stacked
+  style/font_face: "PingFang SC"
+  style/font_point: 16
+  style/label_font_point: 12
+  style/inline_preedit: true
+  style/corner_radius: 12.5
+  style/border_height: 8
+  style/border_width: 10
+  preset_color_schemes:
+    macos_dark:
+      name: 深色
