@@ -190,3 +190,44 @@ test("保存时写入拼音是否留在行内和字号", () => {
   assert.match(next, /^  style\/font_point: 18$/m);
   assert.match(next, /^  style\/label_font_point: 14$/m);
 });
+
+test("缺样式键时补写，不再静默跳过", () => {
+  const yaml = [
+    "patch:",
+    "  show_notifications_when: appropriate",
+    "",
+  ].join("\n");
+  const next = applyPatch(yaml, {
+    scheme: "macos_dark",
+    layout: "linear",
+    font: "PingFang SC",
+    style: { font_point: 18 },
+  });
+  assert.match(next, /^  style\/candidate_list_layout: linear$/m);
+  assert.match(next, /^  style\/font_face: "PingFang SC"$/m);
+  assert.match(next, /^  style\/font_point: 18$/m);
+  assert.match(next, /^  show_notifications_when: appropriate$/m);
+});
+
+test("样式行尾注释在保存后保留", () => {
+  const yaml = ["patch:", "  style/font_point: 16 # 字号", ""].join("\n");
+  const next = applyPatch(yaml, { scheme: "macos_dark", layout: "linear", font: "PingFang SC", style: { font_point: 18 } });
+  assert.match(next, /^  style\/font_point: 18 # 字号$/m);
+});
+
+test("配置里没有这个皮肤时写入完整定义", () => {
+  const yaml = ["patch:", "  style/font_point: 16", ""].join("\n");
+  const definition = {
+    id: "macos_dark",
+    name: "macOS 深色",
+    corner_radius: 12.5,
+    back_color: "0x26000000",
+    candidate_text_color: "0xE6FFFFFF",
+  };
+  const next = applyPatch(yaml, { scheme: "macos_dark", layout: "stacked", font: "PingFang SC", definition });
+  assert.match(next, /^  preset_color_schemes:$/m);
+  assert.match(next, /^    macos_dark:$/m);
+  assert.match(next, /^      name: "macOS 深色"$/m);
+  assert.match(next, /^      back_color: 0x26000000$/m);
+  assert.equal(previewInput(next, "macos_dark").scheme.back_color, "0x26000000");
+});

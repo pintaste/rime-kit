@@ -32,7 +32,7 @@ function assertSchemaId(schemaId) {
 
 export function enableSchema(yaml, schemaId) {
   assertSchemaId(schemaId);
-  if (new RegExp(`^\\s*-\\s+schema:\\s*${schemaId}\\s*$`, "m").test(yaml)) return yaml;
+  if (new RegExp(`^\\s*-\\s+schema:\\s*${schemaId}(?:\\s*#.*)?\\s*$`, "m").test(yaml)) return yaml;
   const item = `    - schema: ${schemaId}`;
   const list = /^  schema_list:\s*$/m.exec(yaml);
   if (!list) {
@@ -48,7 +48,7 @@ export function enableSchema(yaml, schemaId) {
 
 export function disableSchema(yaml, schemaId) {
   assertSchemaId(schemaId);
-  const pattern = new RegExp(`^\\s*-\\s+schema:\\s*${schemaId}\\s*$`);
+  const pattern = new RegExp(`^\\s*-\\s+schema:\\s*${schemaId}(?:\\s*#.*)?\\s*$`);
   const lines = yaml.split("\n");
   let removed = false;
   const next = lines.filter((line) => {
@@ -57,7 +57,7 @@ export function disableSchema(yaml, schemaId) {
     return false;
   });
   if (!removed) return yaml;
-  if (!next.some((line) => /^\s*-\s+schema:\s*\S+\s*$/.test(line))) {
+  if (!next.some((line) => /^\s*-\s+schema:\s*[^\s#]+/.test(line))) {
     throw new Error("方案列表里只有雾凇，停用后没有输入方案");
   }
   return next.join("\n");
@@ -113,7 +113,7 @@ export function presetStatus(files) {
   const menu = files["default.custom.yaml"] || "";
   const ice = files["rime_ice.custom.yaml"] || "";
   return {
-    ice: /^\s*-\s+schema:\s*rime_ice\s*$/m.test(menu),
+    ice: /^\s*-\s+schema:\s*rime_ice(?:\s*#.*)?\s*$/m.test(menu),
     wanxiang: /^\s*language:\s*"?wanxiang-lts-zh-hans"?\s*$/m.test(ice),
   };
 }

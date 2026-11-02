@@ -88,4 +88,48 @@ with tempfile.TemporaryDirectory(prefix="rime-kit-recover-") as raw:
     if len(deploy_calls) != 2:
         raise SystemExit("restored config was not deployed")
 
+with tempfile.TemporaryDirectory(prefix="rime-kit-undo-") as raw:
+    root = Path(raw)
+    for name in ("default.custom.yaml", "rime_ice.custom.yaml", "squirrel.custom.yaml"):
+        shutil.copy(fixtures / name, root / name)
+    os.environ["RIME_USER_DIR"] = raw
+    replaced = root / "luna.dict.yaml"
+    replaced.write_text("old")
+    server.commit_change(root, "测试替换", {"luna.dict.yaml": b"old"}, {"luna.dict.yaml": b"new"}, write=True)
+    if replaced.read_text() != "new":
+        raise SystemExit("replace was not written")
+    server.restore_latest(root)
+    if replaced.read_text() != "old":
+        raise SystemExit("restore did not bring back replaced file")
+
+    added = root / "lua" / "demo.lua"
+    added.parent.mkdir()
+    added.write_text("new")
+    server.commit_change(root, "测试新增", {"lua/demo.lua": None}, {"lua/demo.lua": server.PRESENT}, write=False)
+    server.restore_latest(root)
+    if added.exists():
+        raise SystemExit("restore did not remove added file")
+
+with tempfile.TemporaryDirectory(prefix="rime-kit-baseline-") as raw:
+    root = Path(raw)
+    for name in ("default.custom.yaml", "rime_ice.custom.yaml", "squirrel.custom.yaml"):
+        shutil.copy(fixtures / name, root / name)
+    os.environ["RIME_USER_DIR"] = raw
+    before = (root / "rime_ice.custom.yaml").read_text()
+    server.write_presets(None, True)
+    if "wanxiang" not in (root / "rime_ice.custom.yaml").read_text():
+        raise SystemExit("model preset was not written")
+    entries = server.load_log(root)
+    entries.extend({"id": None, "action": "噪音", "lines": ["噪音"]} for _ in range(45))
+    server.save_log(root, entries)
+    if any(entry.get("action") == "启用万象语法模型" for entry in server.load_log(root)):
+        raise SystemExit("test setup did not drop the enable record")
+    server.write_presets(None, False)
+    if (root / "rime_ice.custom.yaml").read_text() != before:
+        raise SystemExit("disable did not use the saved baseline")
+
+server.cancel_install()
+if server.CANCEL.is_set():
+    raise SystemExit("idle cancel poisoned the next install")
+
 print("isolated ok")

@@ -391,15 +391,28 @@ function modelFor(s) {
   return resolvePanel(style, scheme);
 }
 
+function definitionFor(id) {
+  const builtin = schemes.find((item) => item.id === id);
+  if (!builtin) return null;
+  const out = {};
+  for (const [key, value] of Object.entries(builtin)) {
+    if (key === "now" || key === "labelStyle") continue;
+    out[key] = String(value);
+  }
+  return out;
+}
+
 function makePanel(s) {
-  const drawn = modelFor(s);
-  const hiBg = cssColor(s.hilited_candidate_back_color || s.hilited_back_color, "transparent");
-  const text = cssColor(s.candidate_text_color, "#111");
-  const label = cssColor(s.label_color, text);
-  const comment = cssColor(s.comment_text_color, label);
-  const hiText = cssColor(s.hilited_candidate_text_color, text);
-  const hiLabel = cssColor(s.hilited_candidate_label_color || s.hilited_label_color, hiText);
-  const hiComment = cssColor(s.hilited_comment_text_color, comment);
+  const real = previewInput(yamlText, s.id).scheme;
+  const skin = { ...s, ...real };
+  const drawn = modelFor(skin);
+  const hiBg = cssColor(skin.hilited_candidate_back_color || skin.hilited_back_color, "transparent");
+  const text = cssColor(skin.candidate_text_color, "#111");
+  const label = cssColor(skin.label_color, text);
+  const comment = cssColor(skin.comment_text_color, label);
+  const hiText = cssColor(skin.hilited_candidate_text_color, text);
+  const hiLabel = cssColor(skin.hilited_candidate_label_color || skin.hilited_label_color, hiText);
+  const hiComment = cssColor(skin.hilited_comment_text_color, comment);
   const el = document.createElement("div");
   el.className = "panel col";
   const list = document.createElement("div");
@@ -419,14 +432,14 @@ function makePanel(s) {
   el.style.fontFamily = drawn.fontFace === fontSelect.value
     ? fontSelect.selectedOptions[0].dataset.css
     : `"${drawn.fontFace}"`;
-  el.style.background = cssColor(s.back_color, "#fff");
+  el.style.background = cssColor(skin.back_color, "#fff");
   el.style.color = text;
   el.style.borderRadius = drawn.cornerRadius + "px";
   el.style.padding = `${drawn.edgeInset.height}px ${drawn.edgeInset.width}px`;
   el.style.gap = drawn.lineSpacing + "px";
   el.style.fontSize = drawn.fontPoint + "px";
   el.style.boxShadow = "none";
-  if (s.border_color) el.style.boxShadow = `0 0 0 1px ${cssColor(s.border_color)}`;
+  if (skin.border_color) el.style.boxShadow = `0 0 0 1px ${cssColor(skin.border_color)}`;
   const count = readNumber("page-size", 8);
   words.slice(0, count).forEach((word, i) => {
     const on = i === 0;
@@ -617,6 +630,7 @@ document.getElementById("deploy").onclick = async () => {
           font_point: readNumber("font-point", 16),
           label_font_point: readNumber("label-point", 12),
         },
+        definition: definitionFor(selectedId),
       })
     });
     const data = await response.json();
@@ -804,8 +818,9 @@ async function startInstall(button, body) {
     clearInterval(installPoll);
     button.dataset.busy = "";
     lockControls(false);
-    button.disabled = false;
     await loadStatus().catch(() => {});
+    showDirty();
+    await loadLog().catch(() => {});
   }
 }
 
@@ -834,14 +849,18 @@ if (location.protocol === "file:") location.replace("http://127.0.0.1:8766/");
 
 const pageMatch = menuText.match(/menu\/page_size"?:\s*(\d+)/);
 if (pageMatch) document.getElementById("page-size").value = pageMatch[1];
-if (saved.font_point) document.getElementById("font-point").value = saved.font_point;
-if (saved.label_font_point) document.getElementById("label-point").value = saved.label_font_point;
-document.getElementById("inline-preedit").checked = saved.inline_preedit !== false;
+const active = previewInput(yamlText, selectedId);
+const pick = (key, fallback) => active.scheme[key] ?? active.style[key] ?? fallback;
+const activeFont = pick("font_face", "");
+if ([...font.options].some((option) => option.value === activeFont)) font.value = activeFont;
+document.getElementById("font-point").value = pick("font_point", 16);
+document.getElementById("label-point").value = pick("label_font_point", pick("font_point", 16));
+document.getElementById("inline-preedit").checked = pick("inline_preedit", true) !== false;
 for (const id of ["page-size", "font-point", "label-point"]) {
   const field = document.getElementById(id);
   field.dataset.fallback = field.value;
 }
-setLayout(saved.candidate_list_layout === "linear");
+setLayout(pick("candidate_list_layout", "stacked") === "linear");
 markSaved();
 if (location.search.includes("restored=1")) {
   const status = document.getElementById("status");

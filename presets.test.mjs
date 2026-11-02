@@ -97,3 +97,10 @@ test("已启用和未启用都从配置文本判断", () => {
   }, { ice: true, wanxiang: true }));
   assert.deepEqual(on, { ice: true, wanxiang: true });
 });
+
+test("带行尾注释的方案项也算启用", () => {
+  const yaml = "patch:\n  schema_list:\n    - schema: rime_ice # 常用\n";
+  assert.equal(presetStatus({ "default.custom.yaml": yaml }).ice, true);
+  assert.equal(enableSchema(yaml, "rime_ice"), yaml);
+  assert.throws(() => disableSchema(yaml, "rime_ice"), /只有雾凇/);
+});

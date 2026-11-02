@@ -32,7 +32,17 @@ function yamlScalar(value) {
 }
 
 function replaceStyle(yaml, key, value) {
-  return yaml.replace(new RegExp(`^(  style/${key}:\\s*).*$`, "m"), `$1${yamlScalar(value)}`);
+  const pattern = new RegExp(`^(  style/${key}:\\s*)(.*)$`, "m");
+  if (!pattern.test(yaml)) return insertStyle(yaml, key, value);
+  return yaml.replace(pattern, (_all, prefix, raw) => {
+    const hash = raw.indexOf(" #");
+    return `${prefix}${yamlScalar(value)}${hash >= 0 ? raw.slice(hash) : ""}`;
+  });
+}
+
+function insertStyle(yaml, key, value) {
+  if (!/^patch:\s*$/m.test(yaml)) throw new Error("找不到 patch");
+  return yaml.replace(/^patch:\s*$/m, `patch:\n  style/${key}: ${yamlScalar(value)}`);
 }
 function replaceInScheme(yaml, scheme, key, value) {
   const header = new RegExp(`^    ${scheme}:\\s*$`, "m").exec(yaml);
@@ -53,6 +63,7 @@ function replaceInScheme(yaml, scheme, key, value) {
 
 export function applyPatch(yaml, selection) {
   let next = yaml;
+  if (selection.definition) next = insertScheme(next, selection.definition);
   next = replaceStyle(next, "color_scheme", selection.scheme);
   next = replaceStyle(next, "color_scheme_dark", selection.scheme);
   next = replaceStyle(next, "candidate_list_layout", selection.layout);
@@ -67,6 +78,31 @@ export function applyPatch(yaml, selection) {
     next = replaceInScheme(next, selection.scheme, key, String(selection.style[key]));
   }
   return next;
+}
+
+const SKIP_DEFINITION_KEYS = new Set(["id", "now", "labelStyle"]);
+
+function insertScheme(yaml, definition) {
+  const id = String(definition.id || "");
+  if (!/^[A-Za-z0-9_]+$/.test(id)) throw new Error("皮肤 id 无效");
+  if (new RegExp(`^    ${id}:\\s*$`, "m").test(yaml)) return yaml;
+  const lines = [`      name: ${yamlScalar(String(definition.name || id))}`];
+  for (const [key, value] of Object.entries(definition)) {
+    if (key === "name" || SKIP_DEFINITION_KEYS.has(key)) continue;
+    if (value === undefined || value === null) continue;
+    lines.push(`      ${key}: ${yamlScalar(String(value))}`);
+  }
+  const block = `    ${id}:\n${lines.join("\n")}`;
+  const section = /^  preset_color_schemes:\s*$/m.exec(yaml);
+  if (!section) {
+    if (!/^patch:\s*$/m.test(yaml)) throw new Error("找不到 patch");
+    return yaml.replace(/^patch:\s*$/m, `patch:\n  preset_color_schemes:\n${block}`);
+  }
+  const after = section.index + section[0].length;
+  const boundary = yaml.slice(after).search(/\n  [A-Za-z_#]/);
+  const end = boundary < 0 ? yaml.length : after + boundary;
+  const sectionText = yaml.slice(section.index, end).replace(/\s*$/, "");
+  return yaml.slice(0, section.index) + `${sectionText}\n${block}` + yaml.slice(end);
 }
 
 const STYLE_KEYS = [

@@ -41,6 +41,34 @@ FONTS = {
     "Xingkai SC",
 }
 LAYOUTS = {"linear", "stacked"}
+DEFINITION_KEYS = {
+    "name",
+    "back_color",
+    "border_color",
+    "text_color",
+    "candidate_text_color",
+    "label_color",
+    "comment_text_color",
+    "hilited_back_color",
+    "hilited_candidate_back_color",
+    "hilited_candidate_text_color",
+    "hilited_candidate_label_color",
+    "hilited_label_color",
+    "hilited_comment_text_color",
+    "corner_radius",
+    "hilited_corner_radius",
+    "border_height",
+    "border_width",
+    "font_point",
+    "label_font_point",
+    "font_face",
+    "label_font_face",
+    "line_spacing",
+    "shadow_size",
+    "candidate_list_layout",
+    "inline_preedit",
+    "text_orientation",
+}
 
 
 def yaml_scalar(value: str) -> str:
@@ -125,7 +153,7 @@ def run_node(script: str, payload: dict) -> str:
         raise RuntimeError(message or result.stderr.strip() or "补丁失败")
     return result.stdout
 
-def apply_patch(yaml: str, scheme: str, layout: str, font: str, style: dict) -> str:
+def apply_patch(yaml: str, scheme: str, layout: str, font: str, style: dict, definition: Optional[dict] = None) -> str:
     script = f"""
 import {{ applyPatch }} from "{PANEL.as_uri()}";
 let raw = "";
@@ -136,7 +164,10 @@ process.stdin.on("end", () => {{
   process.stdout.write(applyPatch(body.yaml, body.selection));
 }});
 """
-    return run_node(script, {"yaml": yaml, "selection": {"scheme": scheme, "layout": layout, "font": font, "style": style}})
+    selection = {"scheme": scheme, "layout": layout, "font": font, "style": style}
+    if definition is not None:
+        selection["definition"] = definition
+    return run_node(script, {"yaml": yaml, "selection": selection})
 
 def apply_menu(yaml: str, page_size: int) -> str:
     script = f"""
@@ -151,7 +182,34 @@ process.stdin.on("end", () => {{
 """
     return run_node(script, {"yaml": yaml, "pageSize": page_size})
 
-def apply(scheme: str, layout: str, font: str, page_size: int, style: dict) -> list[str]:
+def clean_definition(scheme: str, definition) -> Optional[dict]:
+    if definition is None:
+        return None
+    if not isinstance(definition, dict):
+        raise RuntimeError("皮肤定义格式不对")
+    if str(definition.get("id", "")) != scheme:
+        raise RuntimeError("皮肤定义和选择对不上")
+    cleaned = {}
+    for key, value in definition.items():
+        if key == "id":
+            continue
+        if key not in DEFINITION_KEYS:
+            raise RuntimeError(f"皮肤定义里有不认识的项 {key}")
+        if isinstance(value, bool):
+            cleaned[key] = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            cleaned[key] = str(value)
+        elif isinstance(value, str) and len(value) <= 64:
+            cleaned[key] = value
+        else:
+            raise RuntimeError(f"皮肤定义里的 {key} 不是标量")
+    cleaned["id"] = scheme
+    return cleaned
+
+
+def apply(scheme: str, layout: str, font: str, page_size: int, style: dict, definition=None) -> list[str]:
+    if not re.fullmatch(r"[A-Za-z0-9_]+", scheme):
+        raise RuntimeError("皮肤 id 无效")
     if layout not in LAYOUTS:
         raise RuntimeError("排列无效")
     if font not in FONTS:
@@ -171,12 +229,20 @@ def apply(scheme: str, layout: str, font: str, page_size: int, style: dict) -> l
     root = writable_user_dir()
     original = read_config(root, "squirrel.custom.yaml")
     menu_original = read_config(root, "default.custom.yaml")
-    if scheme not in scheme_ids(original):
-        raise RuntimeError("皮肤不在配置里")
-    updated = apply_patch(original, scheme, layout, font, cleaned)
+    known = scheme_ids(original)
+    skin = clean_definition(scheme, definition)
+    if scheme not in known and skin is None:
+        raise RuntimeError("皮肤不在配置里，也没有可写入的定义")
+    updated = apply_patch(original, scheme, layout, font, cleaned, skin)
     menu_updated = apply_menu(menu_original, page_size)
-    originals = {"squirrel.custom.yaml": original, "default.custom.yaml": menu_original}
-    written = {"squirrel.custom.yaml": updated, "default.custom.yaml": menu_updated}
+    originals = {
+        "squirrel.custom.yaml": original.encode(),
+        "default.custom.yaml": menu_original.encode(),
+    }
+    written = {
+        "squirrel.custom.yaml": updated.encode(),
+        "default.custom.yaml": menu_updated.encode(),
+    }
     return commit_change(root, "保存外观", originals, written)
 
 def deploy_live(root: Path) -> None:
@@ -259,34 +325,64 @@ def save_log(root: Path, entries: list) -> None:
     store.mkdir(parents=True, exist_ok=True)
     (store / "log.json").write_text(json.dumps(entries[-40:], ensure_ascii=False, indent=2) + "\n")
 
-def diff_lines(name: str, before: str, after: str) -> list[str]:
+class Present:
+    """File exists but its content is not tracked: binary or too large."""
+
+PRESENT = Present()
+
+def diff_lines(name: str, before, after) -> list[str]:
     if before == after:
         return [f"{name}：没有变化"]
+    if before is None:
+        return [f"{name}：新增"]
+    if after is None:
+        return [f"{name}：删除"]
+    if after is PRESENT or before is PRESENT:
+        return [f"{name}：已更新"]
     lines = [name]
-    for line in difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=0):
+    old = before.decode("utf-8", "replace")
+    new = after.decode("utf-8", "replace")
+    for line in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0):
         if line.startswith(("+++", "---", "@@")):
             continue
         lines.append(line)
     return lines
 
+def stored_path(store: Path, name: str) -> Path:
+    target = (store / name).resolve()
+    base = store.resolve()
+    if base not in target.parents:
+        raise RuntimeError("拒绝写出目录")
+    return target
+
 def record_change(root: Path, action: str, originals: dict, updated: dict) -> list[str]:
-    changed = {name: text for name, text in originals.items() if updated.get(name, text) != text}
+    names = [name for name in dict.fromkeys([*originals, *updated]) if originals.get(name) != updated.get(name)]
     lines = [action]
     stamp = None
-    if changed:
+    if names:
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         folder = backup_store(root) / stamp
         folder.mkdir(parents=True)
-        for name, text in changed.items():
-            (folder / name).write_text(text)
+        files = []
+        added = []
+        for name in names:
+            before = originals.get(name)
+            if before is None or before is PRESENT:
+                added.append(name)
+                continue
+            target = stored_path(folder, name)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(before)
+            files.append(name)
         (folder / "manifest.json").write_text(json.dumps({
             "id": stamp,
             "action": action,
-            "files": list(changed),
+            "files": files,
+            "added": added,
         }, ensure_ascii=False) + "\n")
         lines.append(f"备份 {stamp}")
-        for name, text in changed.items():
-            lines.extend(diff_lines(name, text, updated[name]))
+        for name in names:
+            lines.extend(diff_lines(name, originals.get(name), updated.get(name)))
     else:
         lines.append("已经是这样，没有写入")
     entries = load_log(root)
@@ -313,20 +409,22 @@ def finish_log(root: Path, lines: list[str]) -> list[str]:
     return lines
 
 def config_path(root: Path, name: str) -> Path:
-    dest = (root / name).resolve()
-    if dest.parent != root:
+    base = root.resolve()
+    dest = (base / name).resolve()
+    if dest != base and base not in dest.parents:
         raise RuntimeError("拒绝写出目录")
     return dest
 
 
-def atomic_write(path: Path, text: str) -> None:
+def atomic_write(path: Path, data: bytes) -> None:
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(raw)
     try:
-        with os.fdopen(fd, "w") as handle:
+        with os.fdopen(fd, "wb") as handle:
             os.fchmod(handle.fileno(), mode)
-            handle.write(text)
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
@@ -334,23 +432,30 @@ def atomic_write(path: Path, text: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def write_configs(root: Path, files: dict[str, str]) -> None:
-    for name, text in files.items():
-        atomic_write(config_path(root, name), text)
+def write_files(root: Path, files: dict) -> None:
+    for name, data in files.items():
+        target = config_path(root, name)
+        if data is None:
+            target.unlink(missing_ok=True)
+            continue
+        if data is PRESENT:
+            continue
+        atomic_write(target, data)
 
 
-def commit_change(root: Path, action: str, originals: dict[str, str], updated: dict[str, str]) -> list[str]:
+def commit_change(root: Path, action: str, originals: dict, updated: dict, write: bool = True) -> list[str]:
     lines = record_change(root, action, originals, updated)
-    changed = {name: text for name, text in updated.items() if originals.get(name) != text}
+    changed = {name: value for name, value in updated.items() if originals.get(name) != value}
     if not changed:
         return lines
-    previous = {name: originals[name] for name in changed}
+    previous = {name: originals.get(name) for name in changed}
     try:
-        write_configs(root, changed)
+        if write:
+            write_files(root, changed)
         deploy_live(root)
     except Exception as error:
         try:
-            write_configs(root, previous)
+            write_files(root, previous)
             built = root / "build" / "default.yaml"
             if built.is_file():
                 built.unlink()
@@ -361,13 +466,22 @@ def commit_change(root: Path, action: str, originals: dict[str, str], updated: d
         raise
     return finish_log(root, lines)
 
-def preset_before(root: Path, action: str, name: str) -> str:
+def save_preset_baseline(root: Path, name: str, data: bytes) -> None:
+    path = backup_store(root) / "preset-baseline" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, data)
+
+
+def preset_before(root: Path, action: str, name: str) -> bytes:
+    baseline = backup_store(root) / "preset-baseline" / name
+    if baseline.is_file():
+        return baseline.read_bytes()
     for entry in reversed(load_log(root)):
         if action not in (entry.get("action") or "") or not entry.get("id"):
             continue
         path = backup_store(root) / entry["id"] / name
         if path.is_file():
-            return path.read_text()
+            return path.read_bytes()
     raise RuntimeError("没有启用前的备份，不能停用")
 
 
@@ -386,6 +500,20 @@ def preset_action(ice: Optional[bool], wanxiang: Optional[bool]) -> str:
     return "、".join(parts)
 
 
+def run_presets(files: dict[str, str], options: dict) -> dict[str, str]:
+    script = f"""
+import {{ applyPresets }} from "{ROOT.joinpath("presets.mjs").as_uri()}";
+let raw = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {{ raw += chunk; }});
+process.stdin.on("end", () => {{
+  const body = JSON.parse(raw);
+  process.stdout.write(JSON.stringify(applyPresets(body.files, body.options)));
+}});
+"""
+    return json.loads(run_node(script, {"files": files, "options": options}))
+
+
 def write_presets(ice: Optional[bool] = None, wanxiang: Optional[bool] = None) -> list[str]:
     root = writable_user_dir()
     wanted = []
@@ -402,23 +530,19 @@ def write_presets(ice: Optional[bool] = None, wanxiang: Optional[bool] = None) -
     if wanxiang is True:
         options["wanxiang"] = True
     if options:
-        script = f"""
-import {{ applyPresets }} from "{ROOT.joinpath("presets.mjs").as_uri()}";
-let raw = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {{ raw += chunk; }});
-process.stdin.on("end", () => {{
-  const body = JSON.parse(raw);
-  process.stdout.write(JSON.stringify(applyPresets(body.files, body.options)));
-}});
-"""
-        updated = json.loads(run_node(script, {"files": files, "options": options}))
+        updated = run_presets(files, options)
     else:
         updated = dict(files)
     if wanxiang is False:
-        updated["rime_ice.custom.yaml"] = preset_before(root, "启用万象语法模型", "rime_ice.custom.yaml")
+        updated["rime_ice.custom.yaml"] = preset_before(root, "启用万象语法模型", "rime_ice.custom.yaml").decode()
     action = preset_action(ice, wanxiang)
-    return commit_change(root, action, files, updated)
+    before = {name: files[name].encode() for name in wanted}
+    after = {name: updated[name].encode() for name in wanted}
+    enabling = wanxiang is True and before["rime_ice.custom.yaml"] != after["rime_ice.custom.yaml"]
+    lines = commit_change(root, action, before, after)
+    if enabling:
+        save_preset_baseline(root, "rime_ice.custom.yaml", before["rime_ice.custom.yaml"])
+    return lines
 
 def restore_latest(root: Path) -> list[str]:
     last = next((entry for entry in reversed(load_log(root)) if entry.get("id")), None)
@@ -426,12 +550,17 @@ def restore_latest(root: Path) -> list[str]:
         raise RuntimeError("没有可还原的备份")
     folder = backup_store(root) / last["id"]
     manifest = json.loads((folder / "manifest.json").read_text())
-    names = manifest["files"]
-    previous = {name: (folder / name).read_text() for name in names}
+    previous = {}
+    for name in manifest.get("files", []):
+        previous[name] = stored_path(folder, name).read_bytes()
+    for name in manifest.get("added", []):
+        previous[name] = None
+    if not previous:
+        raise RuntimeError("这份备份没有记录文件")
     current = {}
-    for name in names:
+    for name in previous:
         path = root / name
-        current[name] = path.read_text() if path.is_file() else ""
+        current[name] = path.read_bytes() if path.is_file() else None
     if current == previous:
         return ["撤回上次写入", "已经是上次写入的内容"]
     return commit_change(root, "撤回上次写入", current, previous)
@@ -494,25 +623,30 @@ def install_missing_ice(root: Path) -> list[str]:
         clone_ice(scratch / "src")
         set_job(phase="正在写入雾凇方案…")
         placed = install.place_ice_files(scratch / "src", root, backup)
-        if not custom.is_file():
-            atomic_write(custom, "patch:\n  schema_list:\n")
-            created = True
-            placed["added"].append("default.custom.yaml")
+        created = not custom.is_file()
+        if created:
+            atomic_write(custom, b"patch:\n  schema_list:\n")
+        menu_before = read_config(root, "default.custom.yaml")
+        menu_after = run_presets({"default.custom.yaml": menu_before}, {"ice": True})["default.custom.yaml"]
+        originals = {name: (backup / name).read_bytes() for name in placed["replaced"]}
+        originals.update({name: None for name in placed["added"]})
+        originals["default.custom.yaml"] = None if created else menu_before.encode()
+        updated = {name: PRESENT for name in [*placed["added"], *placed["replaced"]]}
+        updated["default.custom.yaml"] = menu_after.encode()
+        atomic_write(custom, menu_after.encode())
         set_job(phase="正在部署…")
-        return write_presets(True, None)
+        return commit_change(root, "安装雾凇拼音", originals, updated, write=False)
     except Exception as error:
-        changed = bool(placed["added"] or placed["replaced"] or created)
-        if changed:
-            try:
-                install.undo_ice_files(root, backup, placed["added"], placed["replaced"])
-                if created and custom.is_file():
-                    custom.unlink()
-                built = root / "build" / "default.yaml"
-                if built.is_file():
-                    built.unlink()
-                deploy_live(root)
-            except Exception as recovery_error:
-                raise RuntimeError(f"雾凇方案恢复失败：{recovery_error}") from error
+        try:
+            install.undo_ice_files(root, backup, placed["added"], placed["replaced"])
+            if created and custom.is_file():
+                custom.unlink()
+            built = root / "build" / "default.yaml"
+            if built.is_file():
+                built.unlink()
+            deploy_live(root)
+        except Exception as recovery_error:
+            raise RuntimeError(f"雾凇方案恢复失败：{recovery_error}") from error
         raise
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -539,26 +673,35 @@ def install_missing_model(root: Path) -> list[str]:
         raise
     custom = root / "rime_ice.custom.yaml"
     created = not custom.is_file()
+    before = b"patch:\n" if created else custom.read_bytes()
     try:
         if created:
-            atomic_write(custom, "patch:\n")
+            atomic_write(custom, before)
+        updated = run_presets({"rime_ice.custom.yaml": before.decode()}, {"wanxiang": True})["rime_ice.custom.yaml"]
+        atomic_write(custom, updated.encode())
         set_job(phase="正在部署…")
-        return write_presets(None, True)
+        lines = commit_change(
+            root,
+            "安装万象语法模型",
+            {install.MODEL_NAME: None, "rime_ice.custom.yaml": None if created else before},
+            {install.MODEL_NAME: PRESENT, "rime_ice.custom.yaml": updated.encode()},
+            write=False,
+        )
     except Exception:
         if dest.is_file():
             dest.unlink()
         if created and custom.is_file():
             custom.unlink()
         raise
+    save_preset_baseline(root, "rime_ice.custom.yaml", before)
+    return lines
 
 
 def run_install(kind: str) -> list[str]:
     with JOB_LOCK:
         if JOB["running"]:
             raise RuntimeError("已经有一个安装在进行")
-        if CANCEL.is_set():
-            CANCEL.clear()
-            raise RuntimeError("已取消")
+        CANCEL.clear()
         JOB.update(running=True, phase="正在准备…", received=0, total=0)
     try:
         root = writable_user_dir()
@@ -573,6 +716,9 @@ def run_install(kind: str) -> list[str]:
 
 
 def cancel_install() -> None:
+    with JOB_LOCK:
+        if not JOB["running"]:
+            return
     CANCEL.set()
 
 
@@ -689,6 +835,7 @@ class Handler(BaseHTTPRequestHandler):
                     str(body["font"]),
                     int(body["pageSize"]),
                     body.get("style") or {},
+                    body.get("definition"),
                 )
             elif route == "/install":
                 if body.get("ice"):
