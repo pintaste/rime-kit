@@ -44,6 +44,24 @@ def test_place_and_undo():
         assert (dest / "lua" / "foo.lua").read_text() == "old"
         assert not (dest / "rime_ice.schema.yaml").exists()
 
+def test_place_failure_undoes_partial():
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        source = root / "src"
+        dest = root / "rime"
+        backup = root / "backup"
+        (source / "lua").mkdir(parents=True)
+        (source / "lua" / "partial.lua").write_text("partial")
+        dest.mkdir()
+        try:
+            install.place_ice_files(source, dest, backup)
+        except RuntimeError as error:
+            assert "rime_ice.schema.yaml" in str(error)
+        else:
+            raise SystemExit("invalid package was accepted")
+        assert not (dest / "lua" / "partial.lua").exists()
+
+
 
 def test_cancel_removes_partial():
     payload = b"abcdef"
@@ -85,5 +103,6 @@ def test_cancel_removes_partial():
 if __name__ == "__main__":
     test_rules()
     test_place_and_undo()
+    test_place_failure_undoes_partial()
     test_cancel_removes_partial()
     print("install ok")

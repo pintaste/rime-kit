@@ -40,27 +40,34 @@ def place_ice_files(source: Path, dest: Path, backup: Path) -> dict:
     added = []
     replaced = []
     root = dest.resolve()
-    for path in sorted(source.rglob("*")):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(source).as_posix()
-        target = (dest / relative).resolve()
-        if root not in target.parents:
-            raise RuntimeError("拒绝写出目录")
-        action = ice_action(relative, target.is_file())
-        if action == "skip":
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if action == "replace":
-            saved = backup / relative
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, saved)
-            replaced.append(relative)
-        else:
-            added.append(relative)
-        shutil.copy2(path, target)
-    if not (dest / SCHEMA_MARK).is_file():
-        raise RuntimeError("下载的雾凇方案里没有 rime_ice.schema.yaml")
+    try:
+        for path in sorted(source.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(source).as_posix()
+            target = (dest / relative).resolve()
+            if root not in target.parents:
+                raise RuntimeError("拒绝写出目录")
+            action = ice_action(relative, target.is_file())
+            if action == "skip":
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if action == "replace":
+                saved = backup / relative
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, saved)
+                replaced.append(relative)
+            else:
+                added.append(relative)
+            shutil.copy2(path, target)
+        if not (dest / SCHEMA_MARK).is_file():
+            raise RuntimeError("下载的雾凇方案里没有 rime_ice.schema.yaml")
+    except Exception as error:
+        try:
+            undo_ice_files(dest, backup, added, replaced)
+        except Exception as recovery_error:
+            raise RuntimeError(f"雾凇文件恢复失败：{recovery_error}") from error
+        raise
     return {"added": added, "replaced": replaced}
 
 

@@ -312,6 +312,13 @@
 
 <script type="module">
 import { previewInput, resolvePanel } from "/panel.mjs";
+const sessionResponse = await fetch("/session");
+const session = await sessionResponse.json();
+if (!sessionResponse.ok || !session.ok || !session.token) throw new Error(session.error || "无法建立本机写入会话");
+const jsonHeaders = {
+  "Content-Type": "application/json",
+  "X-Rime-Kit-Token": session.token,
+};
 let missingConfig = false;
 const configResponse = await fetch("/config.yaml");
 const yamlText = configResponse.ok ? await configResponse.text() : "";
@@ -599,7 +606,7 @@ document.getElementById("deploy").onclick = async () => {
   try {
     const response = await fetch("/apply", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders,
       body: JSON.stringify({
         scheme: selectedId,
         layout: horizontal ? "linear" : "stacked",
@@ -640,7 +647,7 @@ async function postPreset(button, body) {
   try {
     const response = await fetch("/presets", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders,
       body: JSON.stringify(body),
     });
     const data = await response.json();
@@ -693,6 +700,7 @@ async function loadStatus() {
     status.className = "status err";
     status.textContent = "还没有外观或方案列表。先打开一次鼠须管，让它生成用户目录。";
   }
+}
 
 loadStatus().catch((error) => {
   document.getElementById("status").textContent = error.message || String(error);
@@ -731,13 +739,17 @@ document.getElementById("restore").onclick = async (event) => {
   status.className = "status";
   status.textContent = "正在撤回上次写入…";
   try {
-    const response = await fetch("/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const response = await fetch("/restore", { method: "POST", headers: jsonHeaders, body: "{}" });
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "撤回失败");
-    status.className = "status ok";
-    status.textContent = (data.log || []).includes("已经是上次写入的内容") ? "已经是上次写入的内容。" : "已撤回上次写入。";
-    await loadStatus();
-    await loadLog();
+    const unchanged = (data.log || []).includes("已经是上次写入的内容");
+    if (unchanged) {
+      status.className = "status ok";
+      status.textContent = "已经是上次写入的内容。";
+      await loadLog();
+      return;
+    }
+    location.replace("/?restored=1");
   } catch (error) {
     status.className = "status err";
     status.textContent = error.message || String(error);
@@ -777,7 +789,7 @@ async function startInstall(button, body) {
   try {
     const response = await fetch("/install", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders,
       body: JSON.stringify(body),
     });
     const data = await response.json();
@@ -800,7 +812,7 @@ async function startInstall(button, body) {
 document.getElementById("use-ice").onclick = (event) => {
   const button = event.currentTarget;
   if (button.dataset.busy === "1") {
-    fetch("/install-cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    fetch("/install-cancel", { method: "POST", headers: jsonHeaders, body: "{}" });
     document.getElementById("status").textContent = "正在取消…";
     return;
   }
@@ -810,7 +822,7 @@ document.getElementById("use-ice").onclick = (event) => {
 document.getElementById("use-model").onclick = (event) => {
   const button = event.currentTarget;
   if (button.dataset.busy === "1") {
-    fetch("/install-cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    fetch("/install-cancel", { method: "POST", headers: jsonHeaders, body: "{}" });
     document.getElementById("status").textContent = "正在取消…";
     return;
   }
@@ -831,6 +843,11 @@ for (const id of ["page-size", "font-point", "label-point"]) {
 }
 setLayout(saved.candidate_list_layout === "linear");
 markSaved();
+if (location.search.includes("restored=1")) {
+  const status = document.getElementById("status");
+  status.className = "status ok";
+  status.textContent = "已撤回上次写入。";
+}
 addEventListener("resize", () => document.querySelectorAll(".stage").forEach(fit));
 </script>
 </body>

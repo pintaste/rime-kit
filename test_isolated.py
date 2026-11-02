@@ -54,4 +54,38 @@ with tempfile.TemporaryDirectory(prefix="rime-kit-empty-") as raw:
     else:
         raise SystemExit("missing config was accepted")
 
+with tempfile.TemporaryDirectory(prefix="rime-kit-recover-") as raw:
+    root = Path(raw)
+    for name in ("default.custom.yaml", "rime_ice.custom.yaml", "squirrel.custom.yaml"):
+        shutil.copy(fixtures / name, root / name)
+    os.environ["RIME_USER_DIR"] = raw
+    original = (root / "squirrel.custom.yaml").read_text()
+    deploy_calls = []
+    real_deploy = server.deploy_live
+
+    def fail_once(path):
+        deploy_calls.append(path)
+        if len(deploy_calls) == 1:
+            (path / "build").mkdir()
+            (path / "build" / "default.yaml").write_text("bad build")
+            raise RuntimeError("build failed")
+
+    server.deploy_live = fail_once
+    try:
+        try:
+            server.apply("macos_dark", "linear", "PingFang SC", 8, {})
+        except RuntimeError as error:
+            if "build failed" not in str(error):
+                raise
+        else:
+            raise SystemExit("failed deploy was accepted")
+    finally:
+        server.deploy_live = real_deploy
+    if (root / "squirrel.custom.yaml").read_text() != original:
+        raise SystemExit("failed deploy did not restore config")
+    if (root / "build" / "default.yaml").exists():
+        raise SystemExit("failed deploy left bad build")
+    if len(deploy_calls) != 2:
+        raise SystemExit("restored config was not deployed")
+
 print("isolated ok")

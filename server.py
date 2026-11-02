@@ -6,6 +6,7 @@ import difflib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -23,6 +24,7 @@ HOME_RIME = (Path.home() / "Library" / "Rime").resolve()
 DEPLOYER = "/Library/Input Methods/Squirrel.app/Contents/MacOS/rime_deployer"
 SQUIRREL = "/Library/Input Methods/Squirrel.app/Contents/MacOS/Squirrel"
 SHARED = "/Library/Input Methods/Squirrel.app/Contents/SharedSupport"
+SESSION_TOKEN = secrets.token_urlsafe(32)
 
 def writable_user_dir() -> Path:
     root = read_user_dir()
@@ -167,8 +169,6 @@ def apply(scheme: str, layout: str, font: str, page_size: int, style: dict) -> l
             raise RuntimeError("字号超出范围")
         cleaned[key] = value
     root = writable_user_dir()
-    custom = root / "squirrel.custom.yaml"
-    default = root / "default.custom.yaml"
     original = read_config(root, "squirrel.custom.yaml")
     menu_original = read_config(root, "default.custom.yaml")
     if scheme not in scheme_ids(original):
@@ -177,23 +177,7 @@ def apply(scheme: str, layout: str, font: str, page_size: int, style: dict) -> l
     menu_updated = apply_menu(menu_original, page_size)
     originals = {"squirrel.custom.yaml": original, "default.custom.yaml": menu_original}
     written = {"squirrel.custom.yaml": updated, "default.custom.yaml": menu_updated}
-    lines = record_change(root, "保存外观", originals, written)
-    if updated == original and menu_updated == menu_original:
-        return lines
-    if updated != original:
-        custom.write_text(updated)
-    if menu_updated != menu_original:
-        default.write_text(menu_updated)
-    try:
-        deploy_live(root)
-    except Exception:
-        if updated != original:
-            custom.write_text(original)
-        if menu_updated != menu_original:
-            default.write_text(menu_original)
-        drop_last_record(root)
-        raise
-    return finish_log(root, lines)
+    return commit_change(root, "保存外观", originals, written)
 
 def deploy_live(root: Path) -> None:
     if root != HOME_RIME:
@@ -328,6 +312,55 @@ def finish_log(root: Path, lines: list[str]) -> list[str]:
         save_log(root, entries)
     return lines
 
+def config_path(root: Path, name: str) -> Path:
+    dest = (root / name).resolve()
+    if dest.parent != root:
+        raise RuntimeError("拒绝写出目录")
+    return dest
+
+
+def atomic_write(path: Path, text: str) -> None:
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(raw)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def write_configs(root: Path, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        atomic_write(config_path(root, name), text)
+
+
+def commit_change(root: Path, action: str, originals: dict[str, str], updated: dict[str, str]) -> list[str]:
+    lines = record_change(root, action, originals, updated)
+    changed = {name: text for name, text in updated.items() if originals.get(name) != text}
+    if not changed:
+        return lines
+    previous = {name: originals[name] for name in changed}
+    try:
+        write_configs(root, changed)
+        deploy_live(root)
+    except Exception as error:
+        try:
+            write_configs(root, previous)
+            built = root / "build" / "default.yaml"
+            if built.is_file():
+                built.unlink()
+            deploy_live(root)
+            drop_last_record(root)
+        except Exception as recovery_error:
+            raise RuntimeError(f"配置恢复失败：{recovery_error}") from error
+        raise
+    return finish_log(root, lines)
+
 def preset_before(root: Path, action: str, name: str) -> str:
     for entry in reversed(load_log(root)):
         if action not in (entry.get("action") or "") or not entry.get("id"):
@@ -385,29 +418,7 @@ process.stdin.on("end", () => {{
     if wanxiang is False:
         updated["rime_ice.custom.yaml"] = preset_before(root, "启用万象语法模型", "rime_ice.custom.yaml")
     action = preset_action(ice, wanxiang)
-    lines = record_change(root, action, files, updated)
-    if all(files[name] == updated[name] for name in wanted):
-        return lines
-    for name in wanted:
-        dest = (root / name).resolve()
-        if dest.parent != root:
-            raise RuntimeError("拒绝写出目录")
-        dest.write_text(updated[name])
-    try:
-        deploy_live(root)
-    except Exception as error:
-        for name, text in files.items():
-            (root / name).write_text(text)
-        drop_last_record(root)
-        built = root / "build" / "default.yaml"
-        if built.is_file():
-            built.unlink()
-        try:
-            deploy_live(root)
-        except Exception:
-            raise RuntimeError("配置已改回，但重新部署没有成功") from error
-        raise
-    return finish_log(root, lines)
+    return commit_change(root, action, files, updated)
 
 def restore_latest(root: Path) -> list[str]:
     last = next((entry for entry in reversed(load_log(root)) if entry.get("id")), None)
@@ -423,28 +434,9 @@ def restore_latest(root: Path) -> list[str]:
         current[name] = path.read_text() if path.is_file() else ""
     if current == previous:
         return ["撤回上次写入", "已经是上次写入的内容"]
-    lines = record_change(root, "撤回上次写入", current, previous)
-    for name, text in previous.items():
-        dest = (root / name).resolve()
-        if dest.parent != root:
-            raise RuntimeError("拒绝写出目录")
-        dest.write_text(text)
-    try:
-        deploy_live(root)
-    except Exception as error:
-        for name, text in current.items():
-            (root / name).write_text(text)
-        drop_last_record(root)
-        built = root / "build" / "default.yaml"
-        if built.is_file():
-            built.unlink()
-        try:
-            deploy_live(root)
-        except Exception:
-            raise RuntimeError("配置已改回，但重新部署没有成功") from error
-        raise
-    return finish_log(root, lines)
+    return commit_change(root, "撤回上次写入", current, previous)
 
+WRITE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
 JOB = {"running": False, "phase": "", "received": 0, "total": 0}
 CANCEL = threading.Event()
@@ -503,24 +495,25 @@ def install_missing_ice(root: Path) -> list[str]:
         set_job(phase="正在写入雾凇方案…")
         placed = install.place_ice_files(scratch / "src", root, backup)
         if not custom.is_file():
-            custom.write_text("patch:\n  schema_list:\n")
+            atomic_write(custom, "patch:\n  schema_list:\n")
             created = True
             placed["added"].append("default.custom.yaml")
-        try:
-            set_job(phase="正在部署…")
-            return write_presets(True, None)
-        except Exception:
-            install.undo_ice_files(root, backup, placed["added"], placed["replaced"])
-            if created and custom.is_file():
-                custom.unlink()
-            built = root / "build" / "default.yaml"
-            if built.is_file():
-                built.unlink()
+        set_job(phase="正在部署…")
+        return write_presets(True, None)
+    except Exception as error:
+        changed = bool(placed["added"] or placed["replaced"] or created)
+        if changed:
             try:
+                install.undo_ice_files(root, backup, placed["added"], placed["replaced"])
+                if created and custom.is_file():
+                    custom.unlink()
+                built = root / "build" / "default.yaml"
+                if built.is_file():
+                    built.unlink()
                 deploy_live(root)
-            except Exception:
-                raise RuntimeError("雾凇方案已收回，但重新部署没有成功")
-            raise
+            except Exception as recovery_error:
+                raise RuntimeError(f"雾凇方案恢复失败：{recovery_error}") from error
+        raise
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
         shutil.rmtree(backup, ignore_errors=True)
@@ -530,7 +523,9 @@ def install_missing_model(root: Path) -> list[str]:
     dest = root / install.MODEL_NAME
     if dest.is_file():
         raise RuntimeError("万象模型已经在，不用再下载")
-    partial = root / f"{install.MODEL_NAME}.partial"
+    fd, raw_partial = tempfile.mkstemp(prefix=f".{install.MODEL_NAME}.", suffix=".partial", dir=root)
+    os.close(fd)
+    partial = Path(raw_partial)
     set_job(phase="正在下载万象语法模型…", received=0, total=install.MODEL_BYTES)
 
     def progress(received: int, total: int) -> None:
@@ -544,9 +539,9 @@ def install_missing_model(root: Path) -> list[str]:
         raise
     custom = root / "rime_ice.custom.yaml"
     created = not custom.is_file()
-    if created:
-        custom.write_text("patch:\n")
     try:
+        if created:
+            atomic_write(custom, "patch:\n")
         set_job(phase="正在部署…")
         return write_presets(None, True)
     except Exception:
@@ -582,8 +577,31 @@ def cancel_install() -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _valid_host(self) -> bool:
+        port = self.server.server_address[1]
+        return self.headers.get("Host", "") in {
+            f"127.0.0.1:{port}",
+            f"localhost:{port}",
+        }
+
+    def _valid_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True
+        port = self.server.server_address[1]
+        return origin in {
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+        }
+
     def do_GET(self) -> None:
+        if not self._valid_host():
+            self._json(403, {"ok": False, "error": "拒绝未知来源"})
+            return
         path = self.path.split("?", 1)[0]
+        if path == "/session":
+            self._json(200, {"ok": True, "token": SESSION_TOKEN})
+            return
         if path == "/status":
             try:
                 self._json(200, {"ok": True, **preset_status()})
@@ -637,12 +655,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self) -> None:
+        if not self._valid_host() or not self._valid_origin():
+            self._json(403, {"ok": False, "error": "拒绝跨站请求"})
+            return
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            self._json(415, {"ok": False, "error": "请求必须使用 application/json"})
+            return
+        token = self.headers.get("X-Rime-Kit-Token", "")
+        if not secrets.compare_digest(token, SESSION_TOKEN):
+            self._json(403, {"ok": False, "error": "写入令牌无效"})
+            return
         route = self.path.split("?", 1)[0]
+        locked = False
         try:
             length = int(self.headers.get("Content-Length", "0") or 0)
             if length < 0 or length > 1_000_000:
                 raise RuntimeError("请求太大")
             body = json.loads(self.rfile.read(length).decode() or "{}")
+            if route in {"/presets", "/restore", "/apply", "/install"}:
+                locked = WRITE_LOCK.acquire(blocking=False)
+                if not locked:
+                    self._json(409, {"ok": False, "error": "另一个写入正在进行"})
+                    return
             if route == "/presets":
                 lines = write_presets(body["ice"] if "ice" in body else None, body["wanxiang"] if "wanxiang" in body else None)
             elif route == "/restore":
@@ -672,6 +707,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             self._json(400, {"ok": False, "error": str(error)})
             return
+        finally:
+            if locked:
+                WRITE_LOCK.release()
         self._json(200, {"ok": True, "message": message, "log": lines})
 
     def _json(self, status: int, payload: dict) -> None:
