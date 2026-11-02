@@ -27,4 +27,11 @@ python3 test_install.py
 
 模型文件不放进仓库。页面只在本机缺少该文件时下载。
 
+用到的上游：
+
+- 鼠须管 Squirrel：https://github.com/rime/squirrel
+- Rime 输入法引擎：https://github.com/rime/librime
+- 雾凇拼音：https://github.com/iDvel/rime-ice
+- 万象语法模型：https://github.com/amzxyz/RIME-LMDG
+
 许可：MIT。
